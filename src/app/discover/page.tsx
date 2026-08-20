@@ -266,21 +266,336 @@ export default function DiscoverDashboard() {
   const ringAudioCtxRef = useRef<AudioContext | null>(null);
   const ringOscNodesRef = useRef<OscillatorNode[]>([]);
 
-  // Dynamic profiles from database
+  // Monetization & Settings state
+  const [appSettings, setAppSettings] = useState<any>({
+    dailyFreeSwipes: 10,
+    freeMessagesCount: 5,
+    messagesFree: false,
+    pricePerMessage: 0.50,
+    stripePublishableKey: "pk_test_51U6UIgAG1417j3BHqSCCksuGePXtOcYyogQ8lm4bVueUZSzbll8YNttjCoqakg718BMCy31a6fdhEjxpZxLURtqv00st0A6RUD",
+    superLikePackages: [
+      { id: "sl_starter", name: "5 Super Likes", price: 4.99, superLikesCount: 5 },
+      { id: "sl_popular", name: "15 Super Likes", price: 11.99, superLikesCount: 15 },
+      { id: "sl_pro", name: "40 Super Likes", price: 24.99, superLikesCount: 40 }
+    ],
+    messageCreditPackages: [
+      { id: "msg_basic", name: "20 Messages", price: 2.99, creditsCount: 20 },
+      { id: "msg_standard", name: "60 Messages", price: 6.99, creditsCount: 60 },
+      { id: "msg_unlimited", name: "150 Messages", price: 14.99, creditsCount: 150 }
+    ]
+  });
+
+  const [userSuperLikes, setUserSuperLikes] = useState<number>(5);
+  const [userMessageCredits, setUserMessageCredits] = useState<number>(10);
+  const [showSwipeLimitModal, setShowSwipeLimitModal] = useState<boolean>(false);
+  const [showSuperLikesModal, setShowSuperLikesModal] = useState<boolean>(false);
+  const [showMessageCreditsModal, setShowMessageCreditsModal] = useState<boolean>(false);
+  const [showVipSubscriptionModal, setShowVipSubscriptionModal] = useState<boolean>(false);
+  const [selectedStripePackage, setSelectedStripePackage] = useState<{ pkg: any; type: "superlikes" | "messages" | "subscription" | "boost" } | null>(null);
+  const [cardNumber, setCardNumber] = useState<string>("4242 4242 4242 4242");
+  const [cardExpiry, setCardExpiry] = useState<string>("12/28");
+  const [cardCvc, setCardCvc] = useState<string>("123");
+  const [isProcessingPayment, setIsProcessingPayment] = useState<boolean>(false);
+  const [paymentNotice, setPaymentNotice] = useState<string>("");
+
+  // Floating Love Effect & Delayed Match Notification state
+  const [floatingHearts, setFloatingHearts] = useState<{ id: number; left: number; icon: string }[]>([]);
+  const [matchNotification, setMatchNotification] = useState<{ profile: any; time: string } | null>(null);
+
+  // Super Like Animation & Notifications Drawer state
+  const [superLikeEffectActive, setSuperLikeEffectActive] = useState<boolean>(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(0);
+  const [showNotificationsDrawer, setShowNotificationsDrawer] = useState<boolean>(false);
+  // Discovery Filters, Swiped History Undo & Report System states
+  const [swipedHistory, setSwipedHistory] = useState<any[]>([]);
+  const [showFiltersModal, setShowFiltersModal] = useState<boolean>(false);
+  const [filterAgeMin, setFilterAgeMin] = useState<number>(18);
+  const [filterAgeMax, setFilterAgeMax] = useState<number>(50);
+  const [filterMinMatch, setFilterMinMatch] = useState<number>(0);
+  const [showReportModal, setShowReportModal] = useState<boolean>(false);
+  const [reportCandidate, setReportCandidate] = useState<any | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [showBoostModal, setShowBoostModal] = useState<boolean>(false);
+
+  // Profile Boost Live Countdown & Premium Theme states
+  const [boostTimeLeft, setBoostTimeLeft] = useState<string>("");
+  const [isBoostActive, setIsBoostActive] = useState<boolean>(false);
+
+  // Profile Editing states — sectioned edit
+  const [showEditProfileModal, setShowEditProfileModal] = useState<boolean>(false);
+  const [editName, setEditName] = useState<string>("");
+  const [editAge, setEditAge] = useState<number | string>("");
+  const [editPhone, setEditPhone] = useState<string>("");
+  const [editCity, setEditCity] = useState<string>("");
+  const [editCountry, setEditCountry] = useState<string>("");
+  const [editProfession, setEditProfession] = useState<string>("");
+  const [editEducation, setEditEducation] = useState<string>("");
+  const [editBio, setEditBio] = useState<string>("");
+  const [editDeenAttributes, setEditDeenAttributes] = useState<string>("");
+  const [editHobbies, setEditHobbies] = useState<string>("");
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const [editNewPhotoUrl, setEditNewPhotoUrl] = useState<string>("");
+  const [editNewPhotoFile, setEditNewPhotoFile] = useState<File | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState<boolean>(false);
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+  const editPhotoInputRef = useRef<HTMLInputElement>(null);
+  const profileDirectPhotoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDirectPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUserProfile?.email) return;
+
+    showToast("Uploading photo...", "success");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+      const uploadData = await uploadRes.json();
+
+      if (!uploadData.url) {
+        showToast(uploadData.error || "Photo upload failed", "error");
+        return;
+      }
+
+      // Append photo to user profile in MongoDB
+      const res = await fetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: currentUserProfile.email, addImages: [uploadData.url] })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCurrentUserProfile(data.user);
+        showToast("Photo uploaded & added to profile! 📸", "success");
+      } else {
+        showToast(data.error || "Failed to update profile photos", "error");
+      }
+    } catch (err: any) {
+      showToast("Error uploading photo: " + err.message, "error");
+    } finally {
+      if (profileDirectPhotoInputRef.current) profileDirectPhotoInputRef.current.value = "";
+    }
+  };
+
+  const handleOpenEditProfile = () => {
+    if (!currentUserProfile) return;
+    setEditName(currentUserProfile.name || "");
+    setEditAge(currentUserProfile.age || 25);
+    setEditPhone(currentUserProfile.phone || "");
+    setEditCity(currentUserProfile.city || "");
+    setEditCountry(currentUserProfile.country || "");
+    setEditProfession(currentUserProfile.profession || currentUserProfile.occupation || "");
+    setEditEducation(currentUserProfile.education || "");
+    setEditBio(currentUserProfile.bio || currentUserProfile.detailedBio || "");
+    setEditDeenAttributes(Array.isArray(currentUserProfile.deenAttributes) ? currentUserProfile.deenAttributes.join(", ") : currentUserProfile.deenAttributes || "");
+    setEditHobbies(Array.isArray(currentUserProfile.hobbies) ? currentUserProfile.hobbies.join(", ") : currentUserProfile.hobbies || "");
+    setEditImages(Array.isArray(currentUserProfile.images) ? currentUserProfile.images : currentUserProfile.image ? [currentUserProfile.image] : []);
+    setEditNewPhotoUrl("");
+    setEditNewPhotoFile(null);
+    setShowEditProfileModal(true);
+  };
+
+  // React Toast helper
+  const showToast = (text: string, type: "success" | "error" = "success") => {
+    setToastMessage({ text, type });
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleUserLogout = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      localStorage.removeItem("userEmail");
+    }
+    showToast("Logged out successfully 👋", "success");
+    setTimeout(() => {
+      window.location.href = "/login";
+    }, 400);
+  };
+
+  // Save a specific field section to the DB
+  const saveSection = async (section: string, payload: Record<string, any>) => {
+    if (!currentUserProfile?.email) return;
+    setSavingSection(section);
+    try {
+      const res = await fetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: currentUserProfile.email, ...payload })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCurrentUserProfile(data.user);
+        showToast(`${section} updated successfully! 💾`, "success");
+      } else {
+        showToast(data.error || `Failed to update ${section}`, "error");
+      }
+    } catch (err: any) {
+      showToast(`Network error: ${err.message}`, "error");
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  // Add photo via file upload
+  const handleAddPhotoFile = async () => {
+    if (!editNewPhotoFile || !currentUserProfile?.email) return;
+    setSavingSection("photo-upload");
+    try {
+      const formData = new FormData();
+      formData.append("file", editNewPhotoFile);
+      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+      const uploadData = await uploadRes.json();
+      if (!uploadData.url) {
+        showToast("Photo upload failed", "error");
+        return;
+      }
+      await saveSection("Photos", { addImages: [uploadData.url] });
+      setEditImages((prev) => [...prev, uploadData.url]);
+      setEditNewPhotoFile(null);
+      if (editPhotoInputRef.current) editPhotoInputRef.current.value = "";
+    } catch (err: any) {
+      showToast("Upload error: " + err.message, "error");
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  // Add photo via URL
+  const handleAddPhotoUrl = async () => {
+    if (!editNewPhotoUrl.trim()) return;
+    const url = editNewPhotoUrl.trim();
+    setEditImages((prev) => [...prev, url]);
+    setEditNewPhotoUrl("");
+    await saveSection("Photos", { addImages: [url] });
+  };
+
+  // Remove photo by index
+  const handleRemovePhoto = async (index: number) => {
+    const updated = editImages.filter((_, i) => i !== index);
+    setEditImages(updated);
+    await saveSection("Photos", { images: updated });
+  };
+
+  const handleUndo = () => {
+    if (swipedHistory.length === 0) {
+      showToast("No swiped card to rewind ↺", "error");
+      return;
+    }
+
+    const lastProfile = swipedHistory[swipedHistory.length - 1];
+    setSwipedHistory((prev) => prev.slice(0, prev.length - 1));
+    setProfiles((prev) => [lastProfile, ...prev]);
+    setProfileIndex(0);
+    showToast(`Rewound ${lastProfile.name}'s card ↺`, "success");
+  };
+
+  const triggerLoveEffect = () => {
+    const icons = ["💖", "💕", "❤️", "✨", "🌸", "💖", "💘"];
+    const hearts = Array.from({ length: 12 }).map((_, i) => ({
+      id: Date.now() + i,
+      left: Math.random() * 75 + 10,
+      icon: icons[Math.floor(Math.random() * icons.length)]
+    }));
+    setFloatingHearts(hearts);
+    setTimeout(() => setFloatingHearts([]), 1600);
+  };
+
+  const triggerSuperLikeEffect = () => {
+    setSuperLikeEffectActive(true);
+    setTimeout(() => setSuperLikeEffectActive(false), 2000);
+  };
+
+  const fetchNotifications = async (email: string) => {
+    try {
+      const res = await fetch(`/api/notifications?email=${encodeURIComponent(email)}`);
+      const data = await res.json();
+      if (data.success) {
+        setNotifications(data.notifications || []);
+        setUnreadNotificationsCount(data.unreadCount || 0);
+      }
+    } catch (e) {
+      console.error("Error loading notifications:", e);
+    }
+  };
+
+  const markNotificationsAsRead = async () => {
+    if (!currentUserProfile?.email) return;
+    try {
+      await fetch("/api/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: currentUserProfile.email })
+      });
+      setUnreadNotificationsCount(0);
+    } catch (e) {
+      console.error("Error marking notifications as read:", e);
+    }
+  };
+
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [matchableIds, setMatchableIds] = useState<any[]>([]);
   const [currentUserProfile, setCurrentUserProfile] = useState<any | null>(null);
 
   useEffect(() => {
+    const updateTimer = () => {
+      if (currentUserProfile?.boostUntil) {
+        const now = new Date().getTime();
+        const target = new Date(currentUserProfile.boostUntil).getTime();
+        const diff = target - now;
+
+        if (diff > 0) {
+          setIsBoostActive(true);
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+          if (days > 0) {
+            setBoostTimeLeft(`${days}d ${hours}h ${minutes}m ${seconds}s`);
+          } else {
+            setBoostTimeLeft(`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`);
+          }
+        } else {
+          setIsBoostActive(false);
+          setBoostTimeLeft("");
+        }
+      } else {
+        setIsBoostActive(false);
+        setBoostTimeLeft("");
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [currentUserProfile?.boostUntil, currentUserProfile?.isBoosted]);
+
+  useEffect(() => {
     const fetchAllData = async () => {
       try {
         setLoading(true);
         const email = typeof window !== "undefined" ? localStorage.getItem("userEmail") || "" : "";
+
+        // Fetch settings config
+        try {
+          const settingsRes = await fetch("/api/settings");
+          const settingsData = await settingsRes.json();
+          if (settingsData.success && settingsData.settings) {
+            setAppSettings(settingsData.settings);
+          }
+        } catch (setErr) {
+          console.error("Error fetching settings:", setErr);
+        }
+
         if (!email) {
           setLoading(false);
           return;
         }
+
+        // Fetch notifications for current user
+        fetchNotifications(email);
 
         // 1. Fetch own profile
         try {
@@ -288,6 +603,12 @@ export default function DiscoverDashboard() {
           const selfData = await selfRes.json();
           if (selfData.success && selfData.user) {
             setCurrentUserProfile(selfData.user);
+            if (selfData.user.superLikes !== undefined) setUserSuperLikes(selfData.user.superLikes);
+            if (selfData.user.remainingMessageCredits !== undefined) {
+              setUserMessageCredits(selfData.user.remainingMessageCredits);
+            } else if (selfData.user.messageCredits !== undefined) {
+              setUserMessageCredits(selfData.user.messageCredits);
+            }
           }
         } catch (selfErr) {
           console.error("Error fetching own profile:", selfErr);
@@ -868,7 +1189,14 @@ export default function DiscoverDashboard() {
     }
   };
 
-  const currentProfile = profiles[profileIndex];
+  const filteredProfiles = (profiles.length > 0 ? profiles : PROFILES).filter((p) => {
+    if (p.age && (p.age < filterAgeMin || p.age > filterAgeMax)) return false;
+    if (p.matchPercent !== undefined && p.matchPercent < filterMinMatch) return false;
+    return true;
+  });
+
+  const displayDeck = filteredProfiles.length > 0 ? filteredProfiles : PROFILES;
+  const currentProfile = displayDeck[profileIndex % displayDeck.length];
 
   // Drag-to-swipe states
   const [dragStart, setDragStart] = useState<number | null>(null);
@@ -900,22 +1228,57 @@ export default function DiscoverDashboard() {
     setDragOffset(0);
   };
 
-  // Swiping functions
-  const handleLike = () => {
+  // Swiping functions connected to Admin Limits, Floating Love Effect & Delayed Matches
+  const handleLike = async () => {
     if (!currentProfile) return;
+
+    // Check client swipe limit first
+    if (!currentUserProfile?.isPremium && (currentUserProfile?.dailySwipesCount || 0) >= (appSettings.dailyFreeSwipes || 10)) {
+      setShowSwipeLimitModal(true);
+      return;
+    }
+
+    // Trigger floating heart love animation effect
+    triggerLoveEffect();
+
+    if (currentUserProfile?.email) {
+      try {
+        const res = await fetch("/api/swipes/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentUserProfile.email,
+            candidateEmail: currentProfile.id,
+            action: "like"
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success && data.error === "DAILY_SWIPE_LIMIT_REACHED") {
+          setShowSwipeLimitModal(true);
+          return;
+        }
+
+        if (data.remainingSwipes !== undefined && currentUserProfile) {
+          const limit = appSettings.dailyFreeSwipes || 10;
+          const count = limit - data.remainingSwipes;
+          setCurrentUserProfile((prev: any) => ({ ...prev, dailySwipesCount: count }));
+        }
+      } catch (err) {
+        console.error("Swipe action error:", err);
+      }
+    }
+
+    const targetCandidate = currentProfile;
     setSwipeDirection("right");
-    
-    setTimeout(async () => {
-      setLikedProfiles((prev) => [...prev, currentProfile.id]);
+
+    setTimeout(() => {
+      setLikedProfiles((prev) => [...prev, targetCandidate.id]);
       setSwipeDirection(null);
+      nextProfile();
 
-      // Check if this results in a match (has matchPercent >= 60%)
-      const isMatch = currentProfile.matchPercent !== undefined ? currentProfile.matchPercent >= 60 : true;
-      if (isMatch && !matchedProfiles.some(p => p.id === currentProfile.id)) {
-        setMatchedProfiles((prev) => [...prev, currentProfile]);
-        setMatchCandidate(currentProfile);
-        setShowMatchOverlay(true);
-
+      // Schedule realistic delayed match notification (after 20 seconds, simulating 2-3 minutes)
+      setTimeout(async () => {
         if (currentUserProfile?.email) {
           try {
             await fetch("/api/matches", {
@@ -923,7 +1286,7 @@ export default function DiscoverDashboard() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 email: currentUserProfile.email,
-                candidateEmail: currentProfile.id
+                candidateEmail: targetCandidate.id
               })
             });
 
@@ -958,18 +1321,219 @@ export default function DiscoverDashboard() {
               }));
               setMatchedProfiles(matchedProfs);
             }
+
+            // Show Toast Notification
+            setMatchNotification({
+              profile: targetCandidate,
+              time: "Just now"
+            });
           } catch (matchErr) {
             console.error("Match save error:", matchErr);
           }
         }
-      } else {
-        nextProfile();
-      }
+      }, 20000); // 20 seconds delayed match arrival
     }, 300);
   };
 
-  const handleDislike = () => {
+  const handleSuperLike = async () => {
     if (!currentProfile) return;
+
+    if (userSuperLikes <= 0) {
+      setShowSuperLikesModal(true);
+      return;
+    }
+
+    // Trigger explosive golden star Super Like visual effect
+    triggerSuperLikeEffect();
+    triggerLoveEffect();
+
+    if (currentUserProfile?.email) {
+      try {
+        const res = await fetch("/api/swipes/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentUserProfile.email,
+            candidateEmail: currentProfile.id,
+            action: "superlike"
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success && data.error === "OUT_OF_SUPERLIKES") {
+          setShowSuperLikesModal(true);
+          return;
+        }
+
+        if (data.superLikes !== undefined) {
+          setUserSuperLikes(data.superLikes);
+        }
+
+        // Send Super Like notification to receiver candidate
+        await fetch("/api/notifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            senderEmail: currentUserProfile.email,
+            receiverEmail: currentProfile.id,
+            senderName: currentUserProfile.name || "A Muslim Brother/Sister",
+            senderImage: currentUserProfile.images?.[0] || "/couple.png",
+            type: "superlike",
+            message: "Sent you a Super Like! ⭐"
+          })
+        });
+      } catch (err) {
+        console.error("Superlike action error:", err);
+      }
+    }
+
+    const targetCandidate = currentProfile;
+    setSwipeDirection("right");
+
+    setTimeout(() => {
+      setLikedProfiles((prev) => [...prev, targetCandidate.id]);
+      setSwipeDirection(null);
+      nextProfile();
+
+      // Schedule fast match notification for Super Likes (after 12 seconds)
+      setTimeout(async () => {
+        if (currentUserProfile?.email) {
+          try {
+            await fetch("/api/matches", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email: currentUserProfile.email,
+                candidateEmail: targetCandidate.id
+              })
+            });
+
+            const matchesRes = await fetch(`/api/matches?email=${encodeURIComponent(currentUserProfile.email)}`);
+            const matchesData = await matchesRes.json();
+            if (matchesData.success && matchesData.chats) {
+              setChats(matchesData.chats);
+              setMatchedProfiles(matchesData.chats);
+            }
+
+            setMatchNotification({
+              profile: targetCandidate,
+              time: "Just now"
+            });
+          } catch (matchErr) {
+            console.error("Superlike match error:", matchErr);
+          }
+        }
+      }, 12000);
+    }, 300);
+  };
+
+  // Stripe Checkout Purchase Function
+  const handlePurchasePackage = async (pkg: any, packageType: "superlikes" | "messages" | "subscription" | "boost") => {
+    if (!currentUserProfile?.email) {
+      alert("Please log in to make a purchase.");
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    setPaymentNotice("");
+
+    try {
+      // 1. Create PaymentIntent via Stripe API backend
+      const res = await fetch("/api/payments/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: currentUserProfile.email,
+          packageId: pkg.id,
+          packageType
+        })
+      });
+
+      const checkoutData = await res.json();
+      if (!checkoutData.success) {
+        alert(checkoutData.error || "Payment checkout creation failed.");
+        setIsProcessingPayment(false);
+        return;
+      }
+
+      // 2. Confirm Payment via Stripe test handler
+      const confirmRes = await fetch("/api/payments/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentIntentId: checkoutData.paymentIntentId,
+          email: currentUserProfile.email,
+          packageType,
+          itemCount: checkoutData.itemCount
+        })
+      });
+
+      const confirmData = await confirmRes.json();
+      if (confirmData.success) {
+        if (packageType === "superlikes") {
+          setUserSuperLikes(confirmData.user.superLikes);
+          setShowSuperLikesModal(false);
+          setShowSwipeLimitModal(false);
+        } else if (packageType === "messages") {
+          setUserMessageCredits(confirmData.user.messageCredits);
+          setShowMessageCreditsModal(false);
+        } else if (packageType === "subscription") {
+          setCurrentUserProfile((prev: any) => ({ ...prev, isPremium: true }));
+          setShowVipSubscriptionModal(false);
+        } else if (packageType === "boost") {
+          setCurrentUserProfile((prev: any) => ({ ...prev, isBoosted: true, boostUntil: confirmData.user.boostUntil }));
+          setShowBoostModal(false);
+          showToast(`⚡ Profile Boost Activated! Your profile is now prioritized FIRST!`, "success");
+        }
+        alert(`🎉 Payment Successful via Stripe! ${packageType === "subscription" ? "You are now a VIP Premium Member! All profile photos unlocked and unblurred." : packageType === "boost" ? "Your Profile Spotlight Boost is now ACTIVE! You are ranked #1 in candidate feeds." : `Added ${checkoutData.itemCount} ${packageType === "superlikes" ? "Super Likes" : "Message Credits"}.`}`);
+      } else {
+        alert(confirmData.error || "Payment confirmation failed.");
+      }
+    } catch (err: any) {
+      console.error("Stripe payment error:", err);
+      alert("Payment Error: " + err.message);
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const handleDislike = async () => {
+    if (!currentProfile) return;
+
+    // Check client swipe limit first
+    if (!currentUserProfile?.isPremium && (currentUserProfile?.dailySwipesCount || 0) >= (appSettings.dailyFreeSwipes || 10)) {
+      setShowSwipeLimitModal(true);
+      return;
+    }
+
+    if (currentUserProfile?.email) {
+      try {
+        const res = await fetch("/api/swipes/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentUserProfile.email,
+            candidateEmail: currentProfile.id,
+            action: "dislike"
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success && data.error === "DAILY_SWIPE_LIMIT_REACHED") {
+          setShowSwipeLimitModal(true);
+          return;
+        }
+
+        if (data.remainingSwipes !== undefined && currentUserProfile) {
+          const limit = appSettings.dailyFreeSwipes || 10;
+          const count = limit - data.remainingSwipes;
+          setCurrentUserProfile((prev: any) => ({ ...prev, dailySwipesCount: count }));
+        }
+      } catch (err) {
+        console.error("Dislike action error:", err);
+      }
+    }
+
     setSwipeDirection("left");
     setTimeout(() => {
       setDislikedProfiles((prev) => [...prev, currentProfile.id]);
@@ -978,19 +1542,9 @@ export default function DiscoverDashboard() {
     }, 300);
   };
 
-  const handleUndo = () => {
-    if (profileIndex > 0) {
-      setProfileIndex((prev) => prev - 1);
-    }
-  };
-
   const nextProfile = () => {
-    if (profileIndex < profiles.length - 1) {
-      setProfileIndex((prev) => prev + 1);
-    } else {
-      // Out of profiles (show completion panel)
-      setProfileIndex(profiles.length);
-    }
+    if (displayDeck.length === 0) return;
+    setProfileIndex((prev) => (prev + 1) % displayDeck.length);
   };
 
   // Open Chat thread from Match card or success overlay
@@ -1018,6 +1572,12 @@ export default function DiscoverDashboard() {
     e.preventDefault();
     if (!newMessageText.trim() || activeChatId === null || !currentUserProfile?.email) return;
     
+    // Check message credits if messages are not marked as free by Admin
+    if (!appSettings.messagesFree && userMessageCredits <= 0) {
+      setShowMessageCreditsModal(true);
+      return;
+    }
+
     const room = getRoomId(currentUserProfile.email, activeChatId);
 
     socketRef.current.emit("send-message", {
@@ -1026,6 +1586,10 @@ export default function DiscoverDashboard() {
       text: newMessageText,
       fileType: "text"
     });
+
+    if (!appSettings.messagesFree) {
+      setUserMessageCredits((prev) => Math.max(0, prev - 1));
+    }
 
     setNewMessageText("");
   };
@@ -1053,18 +1617,102 @@ export default function DiscoverDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FCFBF9] text-[#171717] font-sans antialiased flex flex-col justify-between max-w-md mx-auto w-full border-x border-neutral-100 shadow-md relative">
+    <div className={`min-h-screen font-sans antialiased flex flex-col justify-between max-w-md mx-auto w-full border-x shadow-md relative transition-colors duration-700 ${
+      isBoostActive
+        ? "bg-[#0d0d12] text-white border-purple-900/50"
+        : "bg-[#FCFBF9] text-[#171717] border-neutral-100"
+    }`}>
+
+      {/* SPOTLIGHT BOOST ACTIVATED BANNER WITH COUNTDOWN */}
+      {isBoostActive && (
+        <div className="bg-gradient-to-r from-purple-950 via-purple-900 to-indigo-950 text-white px-4 py-2 flex items-center justify-between text-xs border-b border-purple-500/40 shadow-lg sticky top-0 z-30 select-none animate-pulse">
+          <div className="flex items-center gap-1.5 font-black tracking-wider uppercase text-[10px]">
+            <span className="text-amber-400 text-sm">⚡</span>
+            <span className="text-purple-200">BOOST ACTIVATED</span>
+          </div>
+          <div className="flex items-center gap-1 bg-black/50 px-2.5 py-0.5 rounded-full border border-purple-400/40 font-mono text-amber-300 font-extrabold text-[10px]">
+            <span>⏳</span>
+            <span>{boostTimeLeft}</span>
+          </div>
+        </div>
+      )}
       
       {/* Top Header */}
       {activeTab !== "profile" && (
-        <header className="flex justify-between items-center px-4 py-4 bg-white border-b border-neutral-100/80 sticky top-0 z-20 select-none">
-          <button type="button" className="text-neutral-500 hover:text-brand-pink transition-colors">
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        <header className={`flex justify-between items-center px-4 py-3 border-b sticky top-0 z-20 select-none shadow-xs transition-colors duration-700 ${
+          isBoostActive ? "bg-[#14141d] border-purple-900/50 text-white" : "bg-white border-neutral-100/80"
+        }`}>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xl font-black tracking-tight text-[#c21a5c]">LoveLink</span>
+            <button
+              type="button"
+              onClick={() => setShowFiltersModal(true)}
+              className="p-1 text-neutral-400 hover:text-brand-pink transition-colors text-xs"
+              title="Filter Candidates"
+            >
+              🔍
+            </button>
+          </div>
+
+          {/* User Credits & Balance Pill Bar */}
+          <div className="flex items-center gap-1 bg-neutral-50 border border-neutral-200/80 px-2.5 py-1 rounded-full text-[11px] font-bold shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setShowSuperLikesModal(true)}
+              className="flex items-center gap-1 text-amber-600 hover:text-amber-700 hover:scale-105 transition-all"
+              title="Click to buy Super Likes"
+            >
+              <span>⭐</span>
+              <span>{userSuperLikes}</span>
+            </button>
+            <span className="text-neutral-300">|</span>
+            <button
+              type="button"
+              onClick={() => setShowMessageCreditsModal(true)}
+              className="flex items-center gap-1 text-emerald-600 hover:text-emerald-700 hover:scale-105 transition-all"
+              title="Click to buy Message Credits"
+            >
+              <span>💬</span>
+              <span>{userMessageCredits}</span>
+            </button>
+            <span className="text-neutral-300">|</span>
+            <div
+              className="flex items-center gap-1 text-rose-500"
+              title="Daily free swipes remaining"
+            >
+              <span>🔥</span>
+              <span>{Math.max(0, (appSettings.dailyFreeSwipes || 10) - (currentUserProfile?.dailySwipesCount || 0))}</span>
+            </div>
+          </div>
+
+          {/* Notification Bell Icon */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowNotificationsDrawer(true);
+              markNotificationsAsRead();
+            }}
+            className="relative p-1.5 text-neutral-600 hover:text-amber-500 transition-colors"
+            title="Notifications & Received Super Likes"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute top-0.5 right-0.5 bg-rose-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center border-2 border-white animate-pulse">
+                {unreadNotificationsCount}
+              </span>
+            )}
           </button>
-          <span className="text-xl font-bold tracking-tight text-[#c21a5c]">LoveLink</span>
-          <button type="button" onClick={() => { setActiveTab("profile"); setShowSettingsScreen(false); }} className="w-9 h-9 rounded-full overflow-hidden border border-neutral-200 relative shadow-sm hover:scale-105 transition-all">
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("profile");
+              setShowSettingsScreen(false);
+            }}
+            className="w-9 h-9 rounded-full overflow-hidden border border-neutral-200 relative shadow-sm hover:scale-105 transition-all"
+          >
             <Image src={currentUserProfile?.images?.[0] || "/ahmed.png"} fill alt="User avatar" className="object-cover" />
           </button>
         </header>
@@ -1076,7 +1724,7 @@ export default function DiscoverDashboard() {
         {/* TAB 1: SWIPING DISCOVER FEED */}
         {activeTab === "discover" && (
           <div className="flex flex-col flex-1 justify-between gap-6 relative">
-            {profileIndex < profiles.length ? (
+            {currentProfile ? (
               <>
                 {/* Swipeable Card Stack */}
                 <div
@@ -1087,7 +1735,11 @@ export default function DiscoverDashboard() {
                   onTouchStart={(e) => handleDragStart(e.touches[0].clientX)}
                   onTouchMove={(e) => handleDragMove(e.touches[0].clientX)}
                   onTouchEnd={handleDragEnd}
-                  className="relative w-full aspect-[4/5] rounded-[2.5rem] overflow-hidden shadow-xl border border-neutral-100/40 bg-zinc-200 select-none"
+                  className={`relative w-full aspect-[4/5] rounded-[2.5rem] overflow-hidden select-none transition-all duration-300 ${
+                    currentProfile?.isBoosted || (currentProfile?.boostUntil && new Date(currentProfile.boostUntil) > new Date())
+                      ? "border-4 border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.6)] bg-purple-950"
+                      : "border border-neutral-100/40 bg-zinc-200 shadow-xl"
+                  }`}
                   style={{
                     transform: isDragging
                       ? `translateX(${dragOffset}px) rotate(${dragOffset * 0.04}deg)`
@@ -1113,16 +1765,56 @@ export default function DiscoverDashboard() {
                     </div>
                   )}
 
+                  {/* Boosted Profile Animated Badge */}
+                  {(currentProfile?.isBoosted || (currentProfile?.boostUntil && new Date(currentProfile.boostUntil) > new Date())) && (
+                    <div className="absolute top-4 left-4 z-30 flex items-center gap-1.5 bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white text-[10px] font-black uppercase tracking-widest px-3.5 py-1.5 rounded-full shadow-lg border border-purple-300 animate-pulse">
+                      <span>⚡</span>
+                      <span>BOOSTED PROFILE</span>
+                    </div>
+                  )}
+
                   <Image
                     src={currentProfile.image}
                     alt={currentProfile.name}
                     fill
                     priority
                     sizes="400px"
-                    className="object-cover pointer-events-none select-none"
+                    className={`object-cover pointer-events-none select-none transition-all duration-500 ${
+                      !currentUserProfile?.isPremium && appSettings.requireSubscriptionToViewPhotos !== false
+                        ? "filter blur-xl scale-110"
+                        : ""
+                    }`}
                   />
+
+                  {/* VIP Subscription Photo Lock Blur Overlay */}
+                  {!currentUserProfile?.isPremium && appSettings.requireSubscriptionToViewPhotos !== false && (
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center space-y-3 z-20 select-none">
+                      <div className="w-14 h-14 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center text-2xl shadow-xl animate-bounce">
+                        🔒
+                      </div>
+                      <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest bg-amber-500/20 px-3 py-1 rounded-full border border-amber-500/30">
+                        VIP Premium Required
+                      </span>
+                      <h4 className="text-lg font-black text-white">Unlock & Unblur Profile Photos</h4>
+                      <p className="text-xs text-neutral-200 font-medium max-w-xs leading-relaxed">
+                        Subscribe to {appSettings.subscriptionName || "Matrimony VIP Premium"} for only ${appSettings.subscriptionPrice || 19.99}/mo to view clear photos!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowVipSubscriptionModal(true);
+                        }}
+                        className="px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-neutral-950 text-xs font-black uppercase tracking-wider rounded-2xl shadow-xl transition-all active:scale-95 mt-2 flex items-center gap-2"
+                      >
+                        <span>👑</span>
+                        <span>Unlock Photos - ${appSettings.subscriptionPrice || 19.99}/mo</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Dark gradient overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent pointer-events-none"></div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent pointer-events-none z-10"></div>
                   {/* Profile overlay details */}
                   <div className="absolute bottom-6 left-6 right-6 flex flex-col gap-3 text-white">
                     <div className="flex items-center gap-2">
@@ -1191,13 +1883,19 @@ export default function DiscoverDashboard() {
                       ✕
                     </button>
 
-                    {/* Blue Star */}
+                    {/* Blue Star Super Like */}
                     <button
                       type="button"
-                      onClick={handleLike}
-                      className="w-12 h-12 rounded-full bg-white border border-neutral-100 text-blue-400 shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
+                      onClick={handleSuperLike}
+                      className="w-12 h-12 rounded-full bg-white border border-neutral-100 text-blue-500 shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-all relative"
+                      title="Super Like"
                     >
                       ★
+                      {userSuperLikes > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-amber-500 text-neutral-950 font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center border border-white">
+                          {userSuperLikes}
+                        </span>
+                      )}
                     </button>
 
                     {/* Like Heart */}
@@ -1212,7 +1910,9 @@ export default function DiscoverDashboard() {
                     {/* Boost Lightning */}
                     <button
                       type="button"
-                      className="w-12 h-12 rounded-full bg-white border border-neutral-100 text-purple-500 shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
+                      onClick={() => setShowBoostModal(true)}
+                      className="w-12 h-12 rounded-full bg-white border border-neutral-100 text-purple-600 shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-all hover:border-purple-300"
+                      title="Boost Your Profile"
                     >
                       ⚡
                     </button>
@@ -1616,6 +2316,24 @@ export default function DiscoverDashboard() {
                     </div>
                   </div>
 
+                  {/* LOGOUT IN SETTINGS */}
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[9.5px] font-bold text-neutral-400 uppercase tracking-widest block px-1">Session</span>
+                    <div className="bg-white rounded-2xl border border-neutral-100/80 shadow-sm overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={handleUserLogout}
+                        className="w-full flex items-center justify-between p-4 cursor-pointer hover:bg-rose-50/20 transition-colors group text-left"
+                      >
+                        <div className="flex items-center gap-3 text-rose-600">
+                          <span className="text-base">🚪</span>
+                          <span className="text-xs font-extrabold">Log Out of Account</span>
+                        </div>
+                        <span className="text-rose-400 group-hover:translate-x-0.5 transition-transform font-bold text-xs">Exit ›</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* DANGER ZONE */}
                   <div className="flex flex-col gap-2">
                     <span className="text-[9.5px] font-bold text-red-500 uppercase tracking-widest block px-1">Danger Zone</span>
@@ -1681,7 +2399,7 @@ export default function DiscoverDashboard() {
                     
                     {/* Edit Profile Button */}
                     <button 
-                      onClick={() => alert("Profile Editing is coming soon in Shaa Allah!")}
+                      onClick={handleOpenEditProfile}
                       className="bg-gradient-to-r from-brand-pink to-[#be185d] text-white text-xs font-black tracking-wide uppercase px-6 py-3 rounded-full shadow-md flex items-center gap-2 active:scale-95 transition-all mt-1"
                     >
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -1691,11 +2409,78 @@ export default function DiscoverDashboard() {
                     </button>
                   </div>
 
+                  {/* My Balances & Subscription Credits Dashboard Card */}
+                  <div className="bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 rounded-3xl p-5 text-white shadow-xl border border-neutral-800 space-y-4">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                      <div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                          My Account Credits
+                        </span>
+                        <h4 className="text-sm font-black text-white mt-1">Balances & Subscriptions</h4>
+                      </div>
+                      <span className="text-xs text-neutral-400 font-bold">Stripe Secured 🔒</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Super Likes Card */}
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 space-y-2 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">Super Likes</span>
+                          <div className="text-2xl font-black text-amber-400 flex items-center gap-1 mt-0.5">
+                            <span>⭐</span>
+                            <span>{userSuperLikes}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowSuperLikesModal(true)}
+                          className="w-full py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 text-[10px] font-black uppercase tracking-wider rounded-xl shadow-sm transition-all"
+                        >
+                          + Get Super Likes
+                        </button>
+                      </div>
+
+                      {/* Message Credits Card */}
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 space-y-2 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">Message Credits</span>
+                          <div className="text-2xl font-black text-emerald-400 flex items-center gap-1 mt-0.5">
+                            <span>💬</span>
+                            <span>{userMessageCredits}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowMessageCreditsModal(true)}
+                          className="w-full py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-[10px] font-black uppercase tracking-wider rounded-xl shadow-sm transition-all"
+                        >
+                          + Get Credits
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] font-bold text-neutral-300 pt-1 bg-white/5 px-3 py-2 rounded-xl">
+                      <span>🔥 Daily Free Swipes Remaining:</span>
+                      <span className="text-rose-400 font-extrabold">{Math.max(0, (appSettings.dailyFreeSwipes || 10) - (currentUserProfile?.dailySwipesCount || 0))} Swipes</span>
+                    </div>
+                  </div>
+
+                  {/* Hidden Direct Photo Upload Input */}
+                  <input
+                    type="file"
+                    ref={profileDirectPhotoInputRef}
+                    accept="image/*"
+                    onChange={handleDirectPhotoUpload}
+                    className="hidden"
+                  />
+
                   {/* PHOTOS Section */}
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-baseline select-none">
                       <span className="text-[10px] font-black text-neutral-400 tracking-wider uppercase">Photos</span>
-                      <button onClick={() => alert("Photo Manager is coming soon!")} className="text-xs font-black text-brand-pink hover:text-brand-pink-hover transition-colors">Manage</button>
+                      <button onClick={handleOpenEditProfile} className="text-xs font-black text-brand-pink hover:text-brand-pink-hover transition-colors">Manage</button>
                     </div>
                     <div className="grid grid-cols-3 gap-3.5">
                       {currentUserProfile?.images && currentUserProfile.images.length > 0 ? (
@@ -1714,17 +2499,17 @@ export default function DiscoverDashboard() {
                           </div>
                         </>
                       )}
-                      {(!currentUserProfile?.images || currentUserProfile.images.length < 3) && (
-                        <div 
-                          onClick={() => alert("Upload new photo!")}
-                          className="relative aspect-[3/4] rounded-2xl overflow-hidden border-2 border-dashed border-pink-100/80 bg-pink-50/20 text-brand-pink/50 hover:text-brand-pink flex flex-col items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95 transition-all select-none"
-                        >
-                          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                        </div>
-                      )}
+                      <div 
+                        onClick={() => profileDirectPhotoInputRef.current?.click()}
+                        className="relative aspect-[3/4] rounded-2xl overflow-hidden border-2 border-dashed border-pink-200 bg-pink-50/30 text-brand-pink hover:bg-pink-50 hover:border-pink-300 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-sm active:scale-95 transition-all select-none"
+                        title="Click to Upload Photo"
+                      >
+                        <svg className="h-6 w-6 text-brand-pink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span className="text-[9px] font-black text-brand-pink uppercase tracking-wider">+ Add</span>
+                      </div>
                     </div>
                   </div>
 
@@ -1836,6 +2621,25 @@ export default function DiscoverDashboard() {
                       )}
                     </div>
                   </div>
+
+                  {/* PROMINENT LOGOUT BUTTON CARD */}
+                  <div className="bg-white rounded-2xl border border-rose-100 p-4 shadow-sm flex items-center justify-between mt-2 select-none">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0 font-bold text-lg">
+                        🚪
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-xs text-neutral-800 leading-tight">Log Out of Account</h4>
+                        <p className="text-[10px] font-bold text-neutral-400 mt-0.5">Safely sign out from this device</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleUserLogout}
+                      className="bg-rose-500 hover:bg-rose-600 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-md shadow-rose-500/20 active:scale-95 transition-all flex items-center gap-1.5"
+                    >
+                      <span>Logout</span> 🚪
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1844,7 +2648,9 @@ export default function DiscoverDashboard() {
       </main>
 
       {/* Bottom Tabs Nav Bar */}
-      <footer className="bg-white border-t border-neutral-100 px-6 py-4 flex justify-between items-center sticky bottom-0 z-20">
+      <footer className={`border-t px-6 py-4 flex justify-between items-center sticky bottom-0 z-20 transition-colors duration-700 ${
+        isBoostActive ? "bg-[#14141d] border-purple-900/50" : "bg-white border-neutral-100"
+      }`}>
         <button
           onClick={() => {
             setActiveTab("discover");
@@ -2032,7 +2838,11 @@ export default function DiscoverDashboard() {
                 src={selectedProfileForDetails.image} 
                 fill 
                 alt={selectedProfileForDetails.name} 
-                className="object-cover" 
+                className={`object-cover ${
+                  !currentUserProfile?.isPremium && appSettings.requireSubscriptionToViewPhotos !== false
+                    ? "filter blur-xl scale-105"
+                    : ""
+                }`} 
                 sizes="400px" 
                 priority 
               />
@@ -2174,8 +2984,22 @@ export default function DiscoverDashboard() {
                 handleLike();
               }}
               className="w-12 h-12 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-white shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all text-lg flex-shrink-0"
+              title="Super Like"
             >
               ★
+            </button>
+
+            {/* Report & Block Button */}
+            <button 
+              onClick={() => {
+                setReportCandidate(selectedProfileForDetails);
+                setSelectedProfileForDetails(null);
+                setShowReportModal(true);
+              }}
+              className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 border border-rose-200 shadow-sm flex items-center justify-center hover:bg-rose-100 transition-all text-sm flex-shrink-0"
+              title="Report or Block Profile"
+            >
+              🚩
             </button>
           </div>
         </div>
@@ -2244,7 +3068,7 @@ export default function DiscoverDashboard() {
                   className="w-16 h-16 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all"
                 >
                   <svg className="h-6 w-6 text-white fill-current" viewBox="0 0 24 24">
-                    <path d="M12 9c-2.2 0-4.3.3-6.2.9c-.24.08-.47.24-.62.46l-2.7 2.7c-.24.24-.28.63-.12.94c1.1 2.2 2.7 4.1 4.7 5.5c.28.2.63.2.94-.04l2.7-2.7c.28-.28.36-.67.24-1c-.5-.9-.8-2-1-3.2v-.22h7v.22c-.2 1.2-.5 2.3-1 3.2c-.12.33-.04.72.24 1l2.7 2.7c.3.24.65.24.94.04c2-1.4 3.6-3.3 4.7-5.5c.16-.3.12-.7-.12-.94l-2.7-2.7c-.15-.22-.38-.38-.62-.46C16.3 9.3 14.2 9 12 9z" stroke="none" />
+                    <path d="M12 9c-2.2 0-4.3.3-6.2.9c-.24.08-.47.24-.62.46l-2.7 2.7c-.24.24-.28.63-.12.94c1.1 2.2 2.7 4.1 4.7 5.5c.28.2.63.2.94-.04l2.7-2.7c.28-.28.36-.67.24-1c-.5-.9-.8-2-1-3.2v-.22h7v.22c-.2 1.2-.5 2.3-1 3.2c-.12.33-.04.72.24 1l2.7 2.7c.3.24.65.24.94.04c2-1.4 3.6-3.3 4.7-5.5c.16-.3.12-.7-.12-.94l-2.7-2.7c-.15-.22-.38-.38-.62-.46C16.3 9.3 14.2 9 12 9zm0 0l-2.2 2.2a15.045 15.045 0 01-6.59-6.59l2.2-2.2c.28-.28.36-.67.25-1.02A11.36 11.36 0 018.5 3.91c0-.55-.45-1-1-1H3.99c-.56 0-1 .45-1 1C2.99 15.89 10.1 23 19 23c.55 0 1-.45 1-1v-5.62c0-.56-.45-1-1-1z" />
                   </svg>
                 </button>
               </>
@@ -2259,6 +3083,1045 @@ export default function DiscoverDashboard() {
                 </svg>
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Super Like Golden Star Burst Stamp Overlay */}
+      {superLikeEffectActive && (
+        <div className="fixed inset-0 bg-amber-500/20 backdrop-blur-xs z-[290] flex items-center justify-center pointer-events-none select-none">
+          <div className="flex flex-col items-center justify-center animate-starBurst">
+            <span className="text-7xl filter drop-shadow-lg">⭐</span>
+            <div className="border-4 border-amber-400 text-amber-300 bg-neutral-950/90 font-black text-2xl px-6 py-2 rounded-2xl tracking-widest uppercase shadow-2xl mt-4 animate-stampZoom">
+              SUPER LIKED! ⭐
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications Drawer Modal */}
+      {showNotificationsDrawer && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[270] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl relative border border-neutral-100 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🔔</span>
+                <h3 className="text-lg font-black text-neutral-900">Notifications</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNotificationsDrawer(false)}
+                className="w-8 h-8 rounded-full bg-neutral-100 text-neutral-500 font-bold flex items-center justify-center hover:bg-neutral-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-grow overflow-y-auto space-y-3 pr-1">
+              {notifications.length === 0 ? (
+                <div className="text-center py-8 space-y-2">
+                  <div className="text-3xl">⭐</div>
+                  <p className="text-xs font-bold text-neutral-500">No Super Likes or notifications yet.</p>
+                  <p className="text-[10px] text-neutral-400">Keep swiping! Super Likes received from other users will appear here.</p>
+                </div>
+              ) : (
+                notifications.map((notif: any) => (
+                  <div
+                    key={notif._id}
+                    className="p-3.5 bg-amber-50/50 border border-amber-200/80 rounded-2xl flex items-center justify-between gap-3 shadow-2xs"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-amber-400 shrink-0">
+                        <Image src={notif.senderImage || "/couple.png"} fill alt="Sender avatar" className="object-cover" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-extrabold text-neutral-900">{notif.senderName}</div>
+                        <div className="text-[10px] font-bold text-amber-600 flex items-center gap-1">
+                          <span>⭐</span> {notif.message}
+                        </div>
+                        <div className="text-[9px] text-neutral-400 font-semibold mt-0.5">
+                          {new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        startChat({
+                          id: notif.senderEmail,
+                          name: notif.senderName,
+                          image: notif.senderImage || "/couple.png"
+                        });
+                        setShowNotificationsDrawer(false);
+                      }}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-neutral-950 text-[10px] font-black uppercase rounded-xl shadow-xs shrink-0"
+                    >
+                      Match Back
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Love Heart Burst Effect */}
+      {floatingHearts.map((heart) => (
+        <div
+          key={heart.id}
+          style={{
+            left: `${heart.left}%`,
+            animation: "floatHeartUp 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards"
+          }}
+          className="fixed bottom-32 text-4xl pointer-events-none z-[210] select-none filter drop-shadow-md"
+        >
+          {heart.icon}
+        </div>
+      ))}
+
+      {/* VIP Premium Subscription Modal */}
+      {showVipSubscriptionModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[260] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 text-white rounded-3xl p-6 max-w-sm w-full space-y-5 shadow-2xl relative border border-amber-500/30 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setShowVipSubscriptionModal(false)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-neutral-800 text-neutral-400 font-bold flex items-center justify-center hover:bg-neutral-700"
+            >
+              ✕
+            </button>
+
+            <div className="w-16 h-16 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto text-3xl shadow-lg">
+              👑
+            </div>
+
+            <div className="text-center">
+              <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+                Official Platform Plan
+              </span>
+              <h3 className="text-xl font-black text-white mt-2">{appSettings.subscriptionName || "Matrimony VIP Premium"}</h3>
+              <div className="text-2xl font-black text-amber-400 mt-1">
+                ${appSettings.subscriptionPrice || 19.99} <span className="text-xs text-neutral-400 font-normal">/ month</span>
+              </div>
+            </div>
+
+            <div className="space-y-3 bg-neutral-950 p-4 rounded-2xl border border-neutral-800">
+              <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Included Premium Benefits:</div>
+              {(appSettings.subscriptionFeatures || [
+                "Unblur crystal-clear profile photos of all potential matches",
+                "Unlimited direct messages with matches",
+                "Unlimited Super Likes & Matrimony Algorithm priority ranking",
+                "View who liked your profile & VIP badge"
+              ]).map((feature: string, idx: number) => (
+                <div key={idx} className="flex items-start gap-2.5 text-xs text-neutral-200 font-medium">
+                  <span className="text-amber-400 font-extrabold">✓</span>
+                  <span>{feature}</span>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowVipSubscriptionModal(false);
+                setSelectedStripePackage({
+                  pkg: {
+                    id: "sub_vip_plan",
+                    name: appSettings.subscriptionName || "Matrimony VIP Premium",
+                    price: appSettings.subscriptionPrice || 19.99
+                  },
+                  type: "subscription"
+                });
+              }}
+              className="w-full py-4 px-4 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-neutral-950 font-black text-xs uppercase tracking-wider rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              <span>💳 Subscribe with Stripe (${appSettings.subscriptionPrice || 19.99}/mo)</span>
+            </button>
+
+            <div className="text-[10px] text-neutral-500 font-semibold text-center border-t border-neutral-800 pt-2">
+              🔒 Cancel anytime in settings • Stripe Secured
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Delayed Match Toast Notification */}
+      {matchNotification && (
+        <div className="fixed top-4 left-4 right-4 max-w-md mx-auto bg-neutral-900/95 backdrop-blur-md border border-brand-pink/60 text-white rounded-2xl p-3.5 shadow-2xl z-[280] flex items-center justify-between animate-bounce select-none">
+          <div className="flex items-center gap-3">
+            <div className="relative w-11 h-11 rounded-full overflow-hidden border-2 border-brand-pink shrink-0 shadow-md">
+              <Image src={matchNotification.profile.image || "/couple.png"} fill alt="Match avatar" className="object-cover" />
+            </div>
+            <div>
+              <div className="text-[10px] font-black uppercase text-brand-pink tracking-widest flex items-center gap-1">
+                <span>💖</span> Al-Qadr Match Found!
+              </div>
+              <div className="text-xs font-extrabold text-white">
+                {matchNotification.profile.name} matched with you!
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                startChat(matchNotification.profile);
+                setMatchNotification(null);
+              }}
+              className="px-3.5 py-1.5 bg-brand-pink hover:bg-brand-pink-hover text-white text-[11px] font-extrabold rounded-xl shadow-md transition-all uppercase tracking-wider"
+            >
+              Chat Now
+            </button>
+            <button
+              type="button"
+              onClick={() => setMatchNotification(null)}
+              className="text-neutral-400 hover:text-white text-xs p-1"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Search & Matching Filters Modal */}
+      {showFiltersModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[270] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-5 shadow-2xl relative border border-neutral-100">
+            <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🔍</span>
+                <h3 className="text-lg font-black text-neutral-900">Discovery Filters</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFiltersModal(false)}
+                className="w-8 h-8 rounded-full bg-neutral-100 text-neutral-500 font-bold flex items-center justify-center hover:bg-neutral-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-extrabold text-neutral-800 mb-1 flex justify-between">
+                  <span>Age Range Filter</span>
+                  <span className="text-brand-pink font-mono">{filterAgeMin} - {filterAgeMax} yrs</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="18"
+                    max="60"
+                    value={filterAgeMin}
+                    onChange={(e) => setFilterAgeMin(Number(e.target.value))}
+                    className="w-full accent-brand-pink"
+                  />
+                  <input
+                    type="range"
+                    min="18"
+                    max="60"
+                    value={filterAgeMax}
+                    onChange={(e) => setFilterAgeMax(Number(e.target.value))}
+                    className="w-full accent-brand-pink"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-extrabold text-neutral-800 mb-1 flex justify-between">
+                  <span>Minimum Matrimony Match Score</span>
+                  <span className="text-brand-teal font-mono">{filterMinMatch}%+</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="90"
+                  step="10"
+                  value={filterMinMatch}
+                  onChange={(e) => setFilterMinMatch(Number(e.target.value))}
+                  className="w-full accent-brand-teal"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterAgeMin(18);
+                  setFilterAgeMax(50);
+                  setFilterMinMatch(0);
+                  setShowFiltersModal(false);
+                }}
+                className="w-1/2 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-extrabold text-xs rounded-xl transition-all"
+              >
+                Reset Filters
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowFiltersModal(false)}
+                className="w-1/2 py-3 bg-brand-pink hover:bg-brand-pink-hover text-white font-extrabold text-xs rounded-xl shadow-md transition-all uppercase tracking-wider"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report & Block User Modal */}
+      {showReportModal && reportCandidate && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl relative border border-neutral-100 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setShowReportModal(false);
+                setReportCandidate(null);
+              }}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-neutral-100 text-neutral-500 font-bold flex items-center justify-center hover:bg-neutral-200"
+            >
+              ✕
+            </button>
+
+            <div className="w-14 h-14 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto text-2xl">
+              🚩
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black text-neutral-900">Report & Block {reportCandidate.name}?</h3>
+              <p className="text-xs text-neutral-500 font-medium mt-1">This user will be blocked and hidden from your feed.</p>
+            </div>
+
+            <div className="space-y-2 text-left pt-1">
+              {["Fake Profile / Impersonation", "Inappropriate Messages", "Spam / Commercial Solicitation", "Other"].map((reason, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setProfiles((prev) => prev.filter((p) => p.id !== reportCandidate.id));
+                    setMatchedProfiles((prev) => prev.filter((p) => p.id !== reportCandidate.id));
+                    setShowReportModal(false);
+                    setReportCandidate(null);
+                    showToast(`Blocked & reported ${reportCandidate.name} 🚩`, "error");
+                  }}
+                  className="w-full p-3 bg-neutral-50 hover:bg-rose-50 border border-neutral-200 hover:border-rose-200 rounded-xl text-xs font-bold text-neutral-800 text-left transition-all flex items-center justify-between"
+                >
+                  <span>{reason}</span>
+                  <span className="text-neutral-400">→</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification Banner (React Toast Style) */}
+      {toastMessage && (
+        <div className={`fixed bottom-20 left-1/2 -translate-x-1/2 text-white font-black text-xs px-5 py-3 rounded-2xl shadow-2xl z-[350] flex items-center gap-2.5 border select-none animate-bounce transition-all ${
+          toastMessage.type === "error"
+            ? "bg-rose-950 border-rose-500/50 text-rose-100 shadow-rose-950/50"
+            : "bg-neutral-900 border-amber-500/50 text-white shadow-amber-950/50"
+        }`}>
+          <span className="text-sm">{toastMessage.type === "error" ? "❌" : "✅"}</span>
+          <span>{toastMessage.text}</span>
+        </div>
+      )}
+
+      {/* Daily Swipe Limit Modal */}
+      {showSwipeLimitModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[260] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl relative border border-neutral-100">
+            <button
+              type="button"
+              onClick={() => setShowSwipeLimitModal(false)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-neutral-100 text-neutral-500 font-bold flex items-center justify-center hover:bg-neutral-200"
+            >
+              ✕
+            </button>
+
+            <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto text-3xl animate-pulse">
+              ⏳
+            </div>
+
+            <h3 className="text-xl font-black text-neutral-900">Daily Free Swipe Limit Reached</h3>
+            <p className="text-xs text-neutral-500 font-medium leading-relaxed">
+              You've used all {appSettings.dailyFreeSwipes || 10} of your daily free swipes. Purchase extra swipes / Super Likes or upgrade to VIP Premium for unlimited swiping!
+            </p>
+
+            <div className="pt-2 space-y-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSwipeLimitModal(false);
+                  setShowSuperLikesModal(true);
+                }}
+                className="w-full py-3.5 px-4 bg-brand-pink text-white font-black rounded-2xl shadow-lg hover:shadow-brand-pink/20 transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <span>⭐</span>
+                <span>Purchase Swipes / Super Likes</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSwipeLimitModal(false);
+                  setShowVipSubscriptionModal(true);
+                }}
+                className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 text-neutral-950 font-black rounded-2xl shadow-md hover:from-amber-400 hover:to-amber-500 transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <span>👑</span>
+                <span>Upgrade to VIP Unlimited</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowSwipeLimitModal(false)}
+                className="w-full py-2 text-xs font-bold text-neutral-400 hover:text-neutral-600"
+              >
+                Wait until daily reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Super Likes Purchase Modal (Stripe Powered) */}
+      {showSuperLikesModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[250] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-5 shadow-2xl relative border border-neutral-100 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => {
+                setShowSuperLikesModal(false);
+                setSelectedStripePackage(null);
+              }}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-neutral-100 text-neutral-500 font-bold flex items-center justify-center hover:bg-neutral-200"
+            >
+              ✕
+            </button>
+
+            <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-2xl">
+              ⭐
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                Stripe Test Checkout
+              </span>
+              <h3 className="text-xl font-black text-neutral-900 mt-2">Get Super Likes</h3>
+              <p className="text-xs text-neutral-500 font-medium">Stand out and instantly notify potential matches!</p>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              {(appSettings.superLikePackages || []).map((pkg: any) => (
+                <div
+                  key={pkg.id}
+                  className="p-4 rounded-2xl border border-neutral-200 hover:border-amber-500 bg-neutral-50/50 hover:bg-amber-50/30 flex items-center justify-between transition-all"
+                >
+                  <div className="text-left">
+                    <div className="text-sm font-extrabold text-neutral-900">{pkg.name}</div>
+                    <div className="text-[11px] font-bold text-amber-600">⭐ {pkg.superLikesCount} Super Likes</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSuperLikesModal(false);
+                      setShowMessageCreditsModal(false);
+                      setSelectedStripePackage({ pkg, type: "superlikes" });
+                    }}
+                    className="px-4 py-2.5 bg-neutral-900 hover:bg-amber-500 hover:text-neutral-950 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1"
+                  >
+                    ${pkg.price} USD
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="text-[10px] text-neutral-400 font-medium pt-2 border-t border-neutral-100 flex items-center justify-center gap-1">
+              <span>🔒 Powered by Stripe Payments (Admin Test Account)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Message Credits Purchase Modal (Stripe Powered) */}
+      {showMessageCreditsModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[250] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-5 shadow-2xl relative border border-neutral-100 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => {
+                setShowMessageCreditsModal(false);
+                setSelectedStripePackage(null);
+              }}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-neutral-100 text-neutral-500 font-bold flex items-center justify-center hover:bg-neutral-200"
+            >
+              ✕
+            </button>
+
+            <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-2xl">
+              💬
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                Stripe Test Checkout
+              </span>
+              <h3 className="text-xl font-black text-neutral-900 mt-2">Get Message Credits</h3>
+              <p className="text-xs text-neutral-500 font-medium">Continue messaging your matches without interruption.</p>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              {(appSettings.messageCreditPackages || []).map((pkg: any) => (
+                <div
+                  key={pkg.id}
+                  className="p-4 rounded-2xl border border-neutral-200 hover:border-emerald-500 bg-neutral-50/50 hover:bg-emerald-50/30 flex items-center justify-between transition-all"
+                >
+                  <div className="text-left">
+                    <div className="text-sm font-extrabold text-neutral-900">{pkg.name}</div>
+                    <div className="text-[11px] font-bold text-emerald-600">💬 {pkg.creditsCount} Messages</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSuperLikesModal(false);
+                      setShowMessageCreditsModal(false);
+                      setSelectedStripePackage({ pkg, type: "messages" });
+                    }}
+                    className="px-4 py-2.5 bg-neutral-900 hover:bg-emerald-500 hover:text-neutral-950 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1"
+                  >
+                    ${pkg.price} USD
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="text-[10px] text-neutral-400 font-medium pt-2 border-t border-neutral-100 flex items-center justify-center gap-1">
+              <span>🔒 Powered by Stripe Payments (Admin Test Account)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Profile Boost Purchase Modal (Stripe Powered) */}
+      {showBoostModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[260] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-gradient-to-br from-neutral-900 via-purple-950 to-neutral-900 text-white rounded-3xl p-6 max-w-sm w-full text-center space-y-5 shadow-2xl relative border border-purple-500/40 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setShowBoostModal(false)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-neutral-800 text-neutral-400 font-bold flex items-center justify-center hover:bg-neutral-700"
+            >
+              ✕
+            </button>
+
+            <div className="w-16 h-16 rounded-full bg-purple-500/20 text-purple-400 border border-purple-400/40 flex items-center justify-center mx-auto text-3xl shadow-xl animate-bounce">
+              ⚡
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black text-purple-400 uppercase tracking-widest bg-purple-500/20 px-3 py-1 rounded-full border border-purple-500/30">
+                Spotlight Profile Boost
+              </span>
+              <h3 className="text-xl font-black text-white mt-2">Boost Your Profile</h3>
+              <p className="text-xs text-neutral-300 font-medium mt-1">
+                Get up to 10x more matches! Your profile will be highlighted with a glowing aura & badge and placed FIRST in everyone's discover feed.
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              {(appSettings.boostPackages || [
+                { id: "boost_1day", name: "1 Day Spotlight Boost", price: 2.99, durationDays: 1 },
+                { id: "boost_7days", name: "7 Days Super Boost", price: 7.99, durationDays: 7 },
+                { id: "boost_30days", name: "1 Month VIP Mega Boost", price: 19.99, durationDays: 30 }
+              ]).map((pkg: any) => (
+                <div
+                  key={pkg.id}
+                  className="p-4 rounded-2xl border border-purple-500/30 hover:border-purple-400 bg-neutral-900/80 hover:bg-purple-900/40 flex items-center justify-between transition-all"
+                >
+                  <div className="text-left">
+                    <div className="text-xs font-black text-white">{pkg.name}</div>
+                    <div className="text-[10px] font-bold text-purple-400 flex items-center gap-1 mt-0.5">
+                      <span>⚡</span> {pkg.durationDays} {pkg.durationDays === 1 ? "Day" : "Days"} Top Priority
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowBoostModal(false);
+                      setSelectedStripePackage({ pkg, type: "boost" });
+                    }}
+                    className="px-4 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-black rounded-xl shadow-lg transition-all flex items-center gap-1 active:scale-95"
+                  >
+                    ${pkg.price} USD
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="text-[10px] text-neutral-400 font-medium pt-2 border-t border-neutral-800 flex items-center justify-center gap-1">
+              <span>🔒 256-Bit SSL Encrypted • Stripe Payment Gateway</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT PROFILE MODAL (Section-by-Section & React Toast Enabled) */}
+      {showEditProfileModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[300] flex items-center justify-center p-4 md:p-6 select-none animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full space-y-6 shadow-2xl relative border border-neutral-100 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-neutral-100 pb-3 sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">✏️</span>
+                <h3 className="text-lg font-black text-neutral-900">Edit Profile</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditProfileModal(false)}
+                className="w-8 h-8 rounded-full bg-neutral-100 text-neutral-500 font-bold flex items-center justify-center hover:bg-neutral-200 transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-6 text-left">
+              {/* SECTION 1: PHOTOS GALLERY & ADD PHOTO */}
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-neutral-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>📷 Profile Photos & Gallery</span>
+                  </h4>
+                  <span className="text-[10px] text-neutral-400 font-bold">({editImages.length} Photos)</span>
+                </div>
+
+                {/* Existing Photos Grid */}
+                {editImages.length > 0 && (
+                  <div className="grid grid-cols-4 gap-2.5 pt-1">
+                    {editImages.map((imgUrl, idx) => (
+                      <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-neutral-200 shadow-sm group">
+                        <Image src={imgUrl} fill alt={`Photo ${idx + 1}`} className="object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePhoto(idx)}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-md hover:bg-rose-700 transition-all"
+                          title="Remove Photo"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add Photo Inputs */}
+                <div className="space-y-2 pt-2 border-t border-neutral-200/60">
+                  <label className="block text-[11px] font-bold text-neutral-700">Add New Photo</label>
+                  
+                  {/* File Selector */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      ref={editPhotoInputRef}
+                      accept="image/*"
+                      onChange={(e) => setEditNewPhotoFile(e.target.files?.[0] || null)}
+                      className="text-xs text-neutral-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-pink/10 file:text-brand-pink hover:file:bg-brand-pink/20"
+                    />
+                    {editNewPhotoFile && (
+                      <button
+                        type="button"
+                        onClick={handleAddPhotoFile}
+                        disabled={savingSection === "photo-upload"}
+                        className="px-3 py-1.5 bg-brand-pink text-white text-xs font-bold rounded-xl shadow-xs shrink-0 hover:bg-brand-pink-hover"
+                      >
+                        {savingSection === "photo-upload" ? "Uploading..." : "Upload File ⬆️"}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Photo URL Input */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={editNewPhotoUrl}
+                      onChange={(e) => setEditNewPhotoUrl(e.target.value)}
+                      placeholder="https://... photo link"
+                      className="flex-1 px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddPhotoUrl}
+                      disabled={!editNewPhotoUrl.trim()}
+                      className="px-3.5 py-2 bg-neutral-900 text-white text-xs font-bold rounded-xl shadow-xs shrink-0 disabled:opacity-50 hover:bg-neutral-800"
+                    >
+                      + Add URL
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: BASIC INFO (Name, Age, Phone) */}
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-neutral-900 uppercase tracking-wider">
+                    👤 Personal Information
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => saveSection("Personal Info", { name: editName, age: Number(editAge), phone: editPhone })}
+                    disabled={savingSection === "Personal Info"}
+                    className="text-[10px] font-extrabold text-brand-pink bg-brand-pink/10 px-2.5 py-1 rounded-full hover:bg-brand-pink/20 transition-all border border-brand-pink/20"
+                  >
+                    {savingSection === "Personal Info" ? "Saving..." : "Save Section 💾"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 mb-1">Age</label>
+                    <input
+                      type="number"
+                      value={editAge}
+                      onChange={(e) => setEditAge(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 mb-1">Phone Number 📞</label>
+                    <input
+                      type="text"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="+1 (555) 000-0000"
+                      className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 3: LOCATION (City & Country) */}
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-neutral-900 uppercase tracking-wider">
+                    📍 Location Details
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => saveSection("Location", { city: editCity, country: editCountry })}
+                    disabled={savingSection === "Location"}
+                    className="text-[10px] font-extrabold text-brand-pink bg-brand-pink/10 px-2.5 py-1 rounded-full hover:bg-brand-pink/20 transition-all border border-brand-pink/20"
+                  >
+                    {savingSection === "Location" ? "Saving..." : "Save Section 💾"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 mb-1">City</label>
+                    <input
+                      type="text"
+                      value={editCity}
+                      onChange={(e) => setEditCity(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 mb-1">Country</label>
+                    <input
+                      type="text"
+                      value={editCountry}
+                      onChange={(e) => setEditCountry(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 4: CAREER & EDUCATION */}
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-neutral-900 uppercase tracking-wider">
+                    🎓 Career & Education
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => saveSection("Career", { profession: editProfession, education: editEducation })}
+                    disabled={savingSection === "Career"}
+                    className="text-[10px] font-extrabold text-brand-pink bg-brand-pink/10 px-2.5 py-1 rounded-full hover:bg-brand-pink/20 transition-all border border-brand-pink/20"
+                  >
+                    {savingSection === "Career" ? "Saving..." : "Save Section 💾"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 mb-1">Profession</label>
+                    <input
+                      type="text"
+                      value={editProfession}
+                      onChange={(e) => setEditProfession(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 mb-1">Education</label>
+                    <input
+                      type="text"
+                      value={editEducation}
+                      onChange={(e) => setEditEducation(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 5: BIO / ABOUT ME */}
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-neutral-900 uppercase tracking-wider">
+                    📝 About Me / Bio
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => saveSection("Bio", { bio: editBio })}
+                    disabled={savingSection === "Bio"}
+                    className="text-[10px] font-extrabold text-brand-pink bg-brand-pink/10 px-2.5 py-1 rounded-full hover:bg-brand-pink/20 transition-all border border-brand-pink/20"
+                  >
+                    {savingSection === "Bio" ? "Saving..." : "Save Section 💾"}
+                  </button>
+                </div>
+
+                <div>
+                  <textarea
+                    rows={3}
+                    value={editBio}
+                    onChange={(e) => setEditBio(e.target.value)}
+                    placeholder="Tell candidates about yourself..."
+                    className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* SECTION 6: RELIGIOUS VALUES (DEEN ATTRIBUTES) */}
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-neutral-900 uppercase tracking-wider">
+                    🕌 Religious Practice & Deen
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => saveSection("Religious Practice", { deenAttributes: editDeenAttributes })}
+                    disabled={savingSection === "Religious Practice"}
+                    className="text-[10px] font-extrabold text-brand-pink bg-brand-pink/10 px-2.5 py-1 rounded-full hover:bg-brand-pink/20 transition-all border border-brand-pink/20"
+                  >
+                    {savingSection === "Religious Practice" ? "Saving..." : "Save Section 💾"}
+                  </button>
+                </div>
+
+                <div>
+                  <input
+                    type="text"
+                    value={editDeenAttributes}
+                    onChange={(e) => setEditDeenAttributes(e.target.value)}
+                    placeholder="PRACTICING MUSLIM, Prays 5 Times, Halal Diet, Quran"
+                    className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                  />
+                  <span className="text-[10px] text-neutral-400 font-bold block mt-1">Separate attributes with commas</span>
+                </div>
+              </div>
+
+              {/* SECTION 7: HOBBIES & INTERESTS */}
+              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-neutral-900 uppercase tracking-wider">
+                    🎨 Hobbies & Interests
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => saveSection("Hobbies", { hobbies: editHobbies })}
+                    disabled={savingSection === "Hobbies"}
+                    className="text-[10px] font-extrabold text-brand-pink bg-brand-pink/10 px-2.5 py-1 rounded-full hover:bg-brand-pink/20 transition-all border border-brand-pink/20"
+                  >
+                    {savingSection === "Hobbies" ? "Saving..." : "Save Section 💾"}
+                  </button>
+                </div>
+
+                <div>
+                  <input
+                    type="text"
+                    value={editHobbies}
+                    onChange={(e) => setEditHobbies(e.target.value)}
+                    placeholder="Coffee, Reading, Travel, Coding, Charity"
+                    className="w-full px-3 py-2 bg-white border border-neutral-200 rounded-xl text-xs font-medium focus:border-brand-pink focus:outline-none"
+                  />
+                  <span className="text-[10px] text-neutral-400 font-bold block mt-1">Separate hobbies with commas</span>
+                </div>
+              </div>
+
+              {/* SAVE ALL FOOTER */}
+              <div className="pt-2 flex items-center gap-3 border-t border-neutral-100">
+                <button
+                  type="button"
+                  onClick={() => setShowEditProfileModal(false)}
+                  className="w-1/3 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-extrabold text-xs rounded-xl transition-all"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await saveSection("Full Profile", {
+                      name: editName,
+                      age: Number(editAge),
+                      phone: editPhone,
+                      city: editCity,
+                      country: editCountry,
+                      profession: editProfession,
+                      education: editEducation,
+                      bio: editBio,
+                      deenAttributes: editDeenAttributes,
+                      hobbies: editHobbies,
+                      images: editImages
+                    });
+                    setShowEditProfileModal(false);
+                  }}
+                  disabled={savingSection !== null}
+                  className="w-2/3 py-3 bg-brand-pink hover:bg-brand-pink-hover text-white font-extrabold text-xs rounded-xl shadow-md transition-all uppercase tracking-wider flex items-center justify-center gap-2"
+                >
+                  {savingSection !== null ? (
+                    <>
+                      <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+                      <span>Saving Profile...</span>
+                    </>
+                  ) : (
+                    "Save All Changes 💾"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STRIPE INTERACTIVE CARD PAYMENT GATEWAY MODAL */}
+      {selectedStripePackage && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-lg z-[300] flex items-center justify-center p-6 select-none animate-fadeIn">
+          <div className="bg-neutral-900 text-white rounded-3xl p-6 max-w-sm w-full space-y-5 shadow-2xl relative border border-neutral-800">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-black text-lg">stripe</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                  Test Gateway
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedStripePackage(null)}
+                className="w-7 h-7 rounded-full bg-neutral-800 text-neutral-400 font-bold flex items-center justify-center hover:bg-neutral-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Selected Package Details */}
+            <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Order Summary</div>
+                <div className="text-sm font-black text-white mt-0.5">{selectedStripePackage.pkg.name}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-black text-emerald-400">${selectedStripePackage.pkg.price} USD</div>
+                <div className="text-[10px] text-neutral-500 font-semibold">One-time payment</div>
+              </div>
+            </div>
+
+            {/* Test Card Form */}
+            <div className="space-y-3.5">
+              <div className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                <span>💳 Card Information</span>
+                <span className="text-[10px] text-amber-400 font-normal">(Stripe Test Card)</span>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-neutral-400 mb-1">Card Number</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(e.target.value)}
+                    placeholder="4242 4242 4242 4242"
+                    className="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
+                  />
+                  <span className="absolute right-3 top-2.5 text-[11px] font-black text-amber-400 uppercase">
+                    VISA
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-neutral-400 mb-1">Expires (MM/YY)</label>
+                  <input
+                    type="text"
+                    value={cardExpiry}
+                    onChange={(e) => setCardExpiry(e.target.value)}
+                    placeholder="12/28"
+                    className="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-neutral-400 mb-1">CVC Code</label>
+                  <input
+                    type="text"
+                    value={cardCvc}
+                    onChange={(e) => setCardCvc(e.target.value)}
+                    placeholder="123"
+                    className="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white font-mono focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Action Pay Button */}
+            <button
+              type="button"
+              disabled={isProcessingPayment}
+              onClick={async () => {
+                await handlePurchasePackage(selectedStripePackage.pkg, selectedStripePackage.type);
+                setSelectedStripePackage(null);
+              }}
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-neutral-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+            >
+              {isProcessingPayment ? (
+                <>
+                  <div className="w-4 h-4 rounded-full border-2 border-neutral-950 border-t-transparent animate-spin"></div>
+                  <span>Authorizing with Stripe API...</span>
+                </>
+              ) : (
+                `Pay $${selectedStripePackage.pkg.price} USD with Stripe →`
+              )}
+            </button>
+
+            <div className="text-[10px] text-neutral-500 font-semibold text-center border-t border-neutral-800 pt-2 flex items-center justify-center gap-1">
+              <span>🔒 256-Bit SSL Encrypted • Stripe Payment Gateway</span>
+            </div>
           </div>
         </div>
       )}

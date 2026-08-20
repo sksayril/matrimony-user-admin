@@ -44,6 +44,7 @@ const DEEN_ATTRIBUTES = [
 export default function SignUpWizard() {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [region, setRegion] = useState("Global (All Regions)");
   const [otp, setOtp] = useState(["", "", "", ""]);
   const [timer, setTimer] = useState(57);
@@ -187,29 +188,19 @@ export default function SignUpWizard() {
     );
   };
 
-  // Step submissions using MongoDB Backend integration
-  const handleSendOtp = async (e: React.FormEvent) => {
+  // Step 1: Account setup with Email & Password
+  const handleAccountSetup = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
-    setErrorMsg("");
-    setIsSubmitting(true);
-    try {
-      const res = await fetch("/api/auth/otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to send OTP");
-      }
-      setTimer(57);
-      setStep(2);
-    } catch (err: any) {
-      setErrorMsg(err.message);
-    } finally {
-      setIsSubmitting(false);
+    if (!email) {
+      setErrorMsg("Please enter your email address");
+      return;
     }
+    if (!password) {
+      setErrorMsg("Please set a password for your account");
+      return;
+    }
+    setErrorMsg("");
+    setStep(3); // Proceed to Step 3 (Basic Info) directly
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
@@ -334,6 +325,7 @@ export default function SignUpWizard() {
 
       const profilePayload = {
         email,
+        password,
         name,
         age: Number(age) || 24,
         gender,
@@ -498,7 +490,7 @@ export default function SignUpWizard() {
                 </p>
               </div>
 
-              <form onSubmit={handleSendOtp} className="flex flex-col gap-5 mt-4">
+              <form onSubmit={handleAccountSetup} className="flex flex-col gap-5 mt-4">
                 <div>
                   <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">
                     Email Address
@@ -509,6 +501,20 @@ export default function SignUpWizard() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="example@domain.com"
+                    className="w-full px-5 py-4 rounded-2xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-brand-pink/20 focus:border-brand-pink transition-all text-sm font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">
+                    Password 🔑
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Create a strong password"
                     className="w-full px-5 py-4 rounded-2xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-brand-pink/20 focus:border-brand-pink transition-all text-sm font-medium"
                   />
                 </div>
@@ -552,10 +558,9 @@ export default function SignUpWizard() {
 
                 <button
                   type="submit"
-                  disabled={isSubmitting}
-                  className="w-full bg-brand-pink hover:bg-brand-pink-hover text-white py-4 rounded-full font-semibold text-sm transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-brand-pink hover:bg-brand-pink-hover text-white py-4 rounded-full font-semibold text-sm transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 mt-4 uppercase tracking-wider"
                 >
-                  {isSubmitting ? "Sending..." : "Send OTP"}
+                  Continue
                   <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>

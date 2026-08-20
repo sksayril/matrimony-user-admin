@@ -4,6 +4,7 @@ export interface IUser extends Document {
   email: string;
   name?: string;
   age?: number;
+  phone?: string;
   targetGender?: string;
   hobbies?: string[];
   deenAttributes?: string[];
@@ -19,6 +20,15 @@ export interface IUser extends Document {
   profession?: string;
   bio?: string;
   isRegistered: boolean;
+  role: "user" | "admin";
+  password?: string;
+  superLikes: number;
+  messageCredits: number;
+  dailySwipesCount: number;
+  lastSwipeResetDate?: Date;
+  isPremium: boolean;
+  isBoosted?: boolean;
+  boostUntil?: Date;
   createdAt: Date;
 }
 
@@ -26,6 +36,7 @@ const UserSchema = new Schema<IUser>({
   email: { type: String, required: true, unique: true, index: true },
   name: { type: String },
   age: { type: Number },
+  phone: { type: String },
   targetGender: { type: String },
   hobbies: { type: [String], default: [] },
   deenAttributes: { type: [String], default: [] },
@@ -41,6 +52,15 @@ const UserSchema = new Schema<IUser>({
   profession: { type: String },
   bio: { type: String },
   isRegistered: { type: Boolean, default: false },
+  role: { type: String, enum: ["user", "admin"], default: "user" },
+  password: { type: String },
+  superLikes: { type: Number, default: 5 },
+  messageCredits: { type: Number, default: 10 },
+  dailySwipesCount: { type: Number, default: 0 },
+  lastSwipeResetDate: { type: Date, default: Date.now },
+  isPremium: { type: Boolean, default: false },
+  isBoosted: { type: Boolean, default: false },
+  boostUntil: { type: Date },
   createdAt: { type: Date, default: Date.now },
 });
 

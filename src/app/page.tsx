@@ -2,7 +2,6 @@ import React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import Logo from "@/components/Logo";
-import SocialButton from "@/components/SocialButton";
 
 export default function Home() {
   return (
@@ -72,17 +71,7 @@ export default function Home() {
             Login
           </Link>
 
-          {/* Divider */}
-          <div className="flex items-center my-2">
-            <div className="flex-grow border-t border-neutral-200"></div>
-            <span className="px-4 text-[11px] font-bold text-neutral-400 tracking-wider">OR</span>
-            <div className="flex-grow border-t border-neutral-200"></div>
-          </div>
 
-          <div className="flex flex-col gap-2.5">
-            <SocialButton provider="google" />
-            <SocialButton provider="apple" />
-          </div>
         </div>
 
         {/* Statistics Grid */}
@@ -223,18 +212,7 @@ export default function Home() {
                 </Link>
               </div>
 
-              {/* Divider */}
-              <div className="flex items-center my-2">
-                <div className="flex-grow border-t border-neutral-200"></div>
-                <span className="px-4 text-xs font-bold text-neutral-400 tracking-wider">OR CONTINUE WITH</span>
-                <div className="flex-grow border-t border-neutral-200"></div>
-              </div>
 
-              {/* Social login buttons */}
-              <div className="grid grid-cols-2 gap-4">
-                <SocialButton provider="google" />
-                <SocialButton provider="apple" />
-              </div>
             </div>
 
             {/* Statistics */}

@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   try {
     await connectToDatabase();
     const data = await request.json();
-    const { email, name, age, targetGender, hobbies, deenAttributes, city, country, images, latitude, longitude, gender, livingLocation, workLocation, education, profession, bio } = data;
+    const { email, password, name, age, targetGender, hobbies, deenAttributes, city, country, images, latitude, longitude, gender, livingLocation, workLocation, education, profession, bio } = data;
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     }
 
     // Update details
+    if (password) user.password = password;
     user.name = name;
     user.age = Number(age) || undefined;
     user.targetGender = targetGender;
