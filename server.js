@@ -6,7 +6,7 @@ const mongoose = require("mongoose");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
-const port = parseInt(process.env.PORT, 10) || 3000;
+const port = parseInt(process.env.PORT, 10) || 3013;
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
