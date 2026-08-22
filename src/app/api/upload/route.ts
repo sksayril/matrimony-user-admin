@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { Readable } from "stream";
 
 // Configure AWS S3 Client
 const s3Client = new S3Client({
@@ -12,6 +13,8 @@ const s3Client = new S3Client({
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || "notes-market-bucket";
 
+export const maxDuration = 300;
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
@@ -21,16 +24,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "File is required" }, { status: 400 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
     const fileName = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
     const contentType = file.type || "image/png";
+
+    // Use stream or buffer based on file size to prevent memory overload
+    let bodyInput: any;
+    if (file.size > 50 * 1024 * 1024) {
+      bodyInput = Readable.fromWeb(file.stream() as any);
+    } else {
+      bodyInput = Buffer.from(await file.arrayBuffer());
+    }
 
     // Upload command parameters
     const uploadParams = {
       Bucket: BUCKET_NAME,
       Key: fileName,
-      Body: buffer,
+      Body: bodyInput,
       ContentType: contentType,
+      ContentLength: file.size,
     };
 
     await s3Client.send(new PutObjectCommand(uploadParams));
